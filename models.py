@@ -53,7 +53,7 @@ class Model(nn.Module):
         x_recon = self.decode(torch.cat([z_q, y_q], axis=-1))
         return x_recon, z_q, y_q, z_q_dist, y_q_dist
 
-    def approximate_loss(self, x, x_recon, z_q, z_q_dist, y_q_dist, eps=1e-3):
+    def approximate_loss(self, x, x_recon, z_q, z_q_dist, y_q_dist, is_observed, eps=1e-3):
         """ KL-divergence follows Eric Jang's trick
         """
         bce = F.binary_cross_entropy(x_recon, x.view(-1, self.data_dim), reduction='sum')
@@ -61,13 +61,16 @@ class Model(nn.Module):
         prior_z = self.prior_z.expand(torch.Size([n_batch]))
 
         probs = y_q_dist.probs # alpha_i / alpha_sum
-        kl_y = torch.sum(probs * (self.n_class * (probs + eps)).log(), dim=-1).sum()
+        if not is_observed:
+            kl_y = torch.sum(probs * (self.n_class * (probs + eps)).log(), dim=-1).sum()
+        else:
+            kl_y = 0.
         # TODO January 24, 2021: kl_z can be derived analytically
         kl_z = (z_q_dist.log_prob(z_q) - prior_z.log_prob(z_q)).sum()
         kl = kl_y + kl_z
         return bce, kl
 
-    def loss(self, x, x_recon, z_q, y_q, z_q_dist, y_q_dist):
+    def loss(self, x, x_recon, z_q, y_q, z_q_dist, y_q_dist, is_observed):
         """ Monte-Carlo estimate KL-divergence
         """
         bce = F.binary_cross_entropy(x_recon, x.view(-1, self.data_dim), reduction='sum')
@@ -75,7 +78,10 @@ class Model(nn.Module):
         prior_y = self.prior_y.expand(torch.Size([n_batch]))
         prior_z = self.prior_z.expand(torch.Size([n_batch]))
 
-        kl_y = (y_q_dist.log_prob(y_q) - prior_y.log_prob(y_q)).sum()
+        if not is_observed:
+            kl_y = (y_q_dist.log_prob(y_q) - prior_y.log_prob(y_q)).sum()
+        else:
+            kl_y = 0.
         # TODO January 24, 2021: kl_z can be derived analytically
         kl_z = (z_q_dist.log_prob(z_q) - prior_z.log_prob(z_q)).sum()
         kl = kl_y + kl_z

@@ -10,11 +10,11 @@ from torchvision.utils import save_image
 from models import Model
 from utils import MNISTCached, setup_data_loaders
 
-def compute_loss(x, x_recon, z_q, y_q, z_q_dist, y_q_dist, model, args):
+def compute_loss(x, x_recon, z_q, y_q, z_q_dist, y_q_dist, model, is_observed, args):
     if args.kld == 'eric':
-        bce, kl = model.approximate_loss(x, x_recon, z_q, z_q_dist, y_q_dist)
+        bce, kl = model.approximate_loss(x, x_recon, z_q, z_q_dist, y_q_dist, is_observed)
     else:
-        bce, kl = model.loss(x, x_recon, z_q, y_q, z_q_dist, y_q_dist)
+        bce, kl = model.loss(x, x_recon, z_q, y_q, z_q_dist, y_q_dist, is_observed)
     elbo = -bce - kl
     loss = -elbo
     return loss
@@ -32,9 +32,11 @@ def train(epoch, model, sup_iter, unsup_iter, num_batches, period, optimizer, de
     for nth in range(1, num_batches+1):
         if nth % period == 0:
             x, y = next(sup_iter)
+            is_observed = True
         else:
             x, y = next(unsup_iter)
             y = None
+            is_observed = False
         x = x.to(device)
         n_sample = x.size(0)
         x = x.view(n_sample, -1)
@@ -48,20 +50,14 @@ def train(epoch, model, sup_iter, unsup_iter, num_batches, period, optimizer, de
 
         # compute & optimize the loss function
         x_recon, z_q, y_q, z_q_dist, y_q_dist = model(x, y)
-        loss = compute_loss(x, x_recon, z_q, y_q, z_q_dist, y_q_dist, model, args)
+        loss = compute_loss(x, x_recon, z_q, y_q, z_q_dist, y_q_dist, model, is_observed, args)
+        loss_c = compute_class_loss(y, y_q_dist) if is_observed else torch.tensor(0.).cuda()
+        loss += args.alpha * loss_c
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         train_loss += loss.item()
-
-        # additional classification loss
-        if y is not None:
-            _, _, _, _, y_q_dist = model(x, y)
-            loss_c = compute_class_loss(y, y_q_dist)
-            optimizer.zero_grad()
-            loss_c.backward()
-            optimizer.step()
-            class_loss += loss_c.item()
+        class_loss += loss_c.item()
 
     # report results
     print('====> Epoch: {} Average negative ELBO: {:.4f}'.format(
@@ -152,10 +148,10 @@ if __name__ == '__main__':
     parser.add_argument('--temp-interval', type=float, default=300)
     parser.add_argument('--min-temp', type=float, default=0.1)
 
-    parser.add_argument('--sampling', type=str, default='TDModel',
-                        help='example: TDModel utilizes torch.distributions.relaxed, ExpTDModel stabilizes loss function')
     parser.add_argument('--kld', type=str, default='eric',
                         help='example: eric, madisson')
+    parser.add_argument('--alpha', type=float, default=1.,
+                        help='loss = -ELBO + alpha*classification_loss')
 
     args = parser.parse_args()
     main(args)
