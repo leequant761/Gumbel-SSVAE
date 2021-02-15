@@ -29,7 +29,3 @@ python main.py --kld=madisson --alpha=900
 `alpha` is very important hyperparameter to tune.
 
 It makes latent variable y to work as label in decoding.
-
-I think that it is a sensitive problem and relates to *identifiability* keywords in ML.
-
-As soon as possible, I will see [ICE-BeeM: Identifiable Conditional Energy-Based Deep Models Based on Nonlinear ICA](https://arxiv.org/abs/2002.11537)
